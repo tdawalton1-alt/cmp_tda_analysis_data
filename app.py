@@ -393,6 +393,7 @@ def render_wrapped_table(
     max_height=520,
     column_widths=None,
     default_width=160,
+    fit_width=False,
 ):
     """
     Render a scrollable HTML table with reliable text wrapping.
@@ -430,8 +431,17 @@ def render_wrapped_table(
         border=0,
     ).replace("\n", "")
 
+    if fit_width:
+        # Table always fits its container: columns share the width
+        # proportionally, so every column (e.g. Count) stays visible.
+        table_width = "100%"
+        col_styles = [f"width:{w / total_width * 100:.1f}%" for w in widths]
+    else:
+        table_width = f"{total_width}px"
+        col_styles = [f"width:{w}px" for w in widths]
+
     colgroup = "<colgroup>" + "".join(
-        f'<col style="width:{w}px">' for w in widths
+        f'<col style="{s}">' for s in col_styles
     ) + "</colgroup>"
 
     table_html = re.sub(
@@ -445,7 +455,7 @@ def render_wrapped_table(
         f".{table_class}-wrap{{width:100%;max-height:{max_height}px;"
         f"overflow:auto;border:1px solid #d6d6d6;border-radius:6px;}}"
         f"table.{table_class}{{border-collapse:collapse;"
-        f"table-layout:fixed;width:{total_width}px;font-size:13px;}}"
+        f"table-layout:fixed;width:{table_width};font-size:13px;}}"
         f"table.{table_class} th,table.{table_class} td{{"
         f"border:1px solid #d6d6d6;padding:8px 10px;text-align:left !important;"
         f"vertical-align:top;white-space:normal !important;"
@@ -740,6 +750,7 @@ with left:
     render_wrapped_table(
         models,
         "models-count-table",
+        fit_width=True,
         max_height=440,
         column_widths={
             "Compressor Model": 240,
@@ -789,12 +800,13 @@ finals = finding_counts(
     unique,
 )
 
-left, right = st.columns([1, 2])
+left, right = st.columns([2, 3])
 
 with left:
     render_wrapped_table(
         effects,
         "effects-count-table",
+        fit_width=True,
         max_height=520,
         column_widths={
             "Finding": 360,
@@ -817,12 +829,13 @@ with right:
 # --------------------------------------------------
 st.subheader("Final Finding Analysis")
 
-left, right = st.columns([1, 2])
+left, right = st.columns([2, 3])
 
 with left:
     render_wrapped_table(
         finals,
         "final-count-table",
+        fit_width=True,
         max_height=520,
         column_widths={
             "Finding": 360,
