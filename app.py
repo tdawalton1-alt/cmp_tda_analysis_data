@@ -1,4 +1,4 @@
-
+import html as html_lib
 import re
 import unicodedata
 
@@ -378,101 +378,88 @@ st.caption(
 
 
 # --------------------------------------------------
-# REUSABLE WRAPPED HTML TABLE
+# REUSABLE WRAPPED HTML TABLE (FIXED)
 # --------------------------------------------------
+def _cell_html(value):
+    """Escape a cell value and turn line breaks into <br>."""
+    text = "" if pd.isna(value) else str(value)
+    text = html_lib.escape(text)
+    return text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+
+
 def render_wrapped_table(
     df,
     table_class,
     max_height=520,
     column_widths=None,
+    default_width=160,
 ):
     """
-    Render a scrollable HTML table.
+    Render a scrollable HTML table with reliable text wrapping.
 
-    pre-wrap preserves actual newlines.
-    overflow-wrap allows long text to wrap inside cells.
-    column_widths controls individual column widths.
+    Fixes compared with the earlier version:
+    1. Line breaks inside cells become <br>, so no blank lines / newlines
+       are left in the HTML (Markdown cuts an HTML block at a blank line
+       and shows the rest as raw text or a code block).
+    2. The whole HTML is built as one un-indented string (indented
+       lines are treated as code blocks by Markdown).
+    3. table-layout: fixed + <colgroup> gives every column a real,
+       enforced width, so long text wraps inside the cell instead of
+       stretching the column or being ignored.
     """
     if df.empty:
         st.info("No data to display.")
         return
 
-    html_table = df.to_html(
+    column_widths = column_widths or {}
+
+    safe = df.copy()
+
+    for col in safe.columns:
+        safe[col] = safe[col].map(_cell_html)
+
+    widths = [column_widths.get(c, default_width) for c in df.columns]
+    total_width = sum(widths)
+
+    safe.columns = [html_lib.escape(str(c)) for c in df.columns]
+
+    table_html = safe.to_html(
         index=False,
-        escape=True,
+        escape=False,
         classes=table_class,
         border=0,
+    ).replace("\n", "")
+
+    colgroup = "<colgroup>" + "".join(
+        f'<col style="width:{w}px">' for w in widths
+    ) + "</colgroup>"
+
+    table_html = re.sub(
+        r"(<table[^>]*>)",
+        lambda m: m.group(1) + colgroup,
+        table_html,
+        count=1,
     )
 
-    widths_css = ""
-
-    if column_widths:
-        for column_name, width in column_widths.items():
-            if column_name in df.columns:
-                position = list(df.columns).index(column_name) + 1
-
-                widths_css += (
-                    f"\n.{table_class} th:nth-child({position}), "
-                    f".{table_class} td:nth-child({position}) "
-                    f"{{ min-width: {width}px; max-width: {width}px; }}"
-                )
+    css = (
+        f".{table_class}-wrap{{width:100%;max-height:{max_height}px;"
+        f"overflow:auto;border:1px solid #d6d6d6;border-radius:6px;}}"
+        f"table.{table_class}{{border-collapse:collapse;"
+        f"table-layout:fixed;width:{total_width}px;font-size:13px;}}"
+        f"table.{table_class} th,table.{table_class} td{{"
+        f"border:1px solid #d6d6d6;padding:8px 10px;text-align:left !important;"
+        f"vertical-align:top;white-space:normal !important;"
+        f"overflow-wrap:anywhere !important;word-break:break-word;"
+        f"line-height:1.45;color:#111111;}}"
+        f"table.{table_class} th{{position:sticky;top:0;z-index:2;"
+        f"background:#f0f2f6;font-weight:700;}}"
+        f"table.{table_class} tr:nth-child(even) td{{background:#fafafa;}}"
+        f"table.{table_class} tr:nth-child(odd) td{{background:#ffffff;}}"
+    )
 
     st.markdown(
-        f"""
-        <style>
-        .{table_class}-wrap {{
-            width: 100%;
-            max-height: {max_height}px;
-            overflow: auto;
-            border: 1px solid #d6d6d6;
-            border-radius: 6px;
-        }}
-
-        table.{table_class} {{
-            border-collapse: collapse;
-            width: max-content;
-            min-width: 100%;
-            table-layout: auto;
-            font-size: 13px;
-        }}
-
-        table.{table_class} th,
-        table.{table_class} td {{
-            border: 1px solid #d6d6d6;
-            padding: 8px 10px;
-            text-align: left;
-            vertical-align: top;
-
-            /* Preserve line breaks and wrap long text. */
-            white-space: pre-wrap !important;
-            overflow-wrap: anywhere !important;
-            word-break: normal;
-
-            min-width: 120px;
-            max-width: 420px;
-            line-height: 1.45;
-        }}
-
-        table.{table_class} th {{
-            position: sticky;
-            top: 0;
-            z-index: 2;
-            background: #f0f2f6;
-            color: #111111;
-            font-weight: 700;
-        }}
-
-        table.{table_class} tr:nth-child(even) td {{
-            background: #fafafa;
-        }}
-
-        {widths_css}
-        </style>
-
-        <div class="{table_class}-wrap">
-            {html_table}
-        </div>
-        """,
+        f'<style>{css}</style>'
+        f'<div class="{table_class}-wrap">{table_html}</div>',
         unsafe_allow_html=True,
     )
 
@@ -518,6 +505,58 @@ def finding_counts(df, columns, selected, unique=False):
         ["Count", "Finding"],
         ascending=[False, True],
     ).reset_index(drop=True)
+
+
+# --------------------------------------------------
+# SORT RECORDS BY FINAL FINDING COUNT
+# --------------------------------------------------
+def sort_records_by_final_count(records, final_counts):
+    """
+    Order compressor records so that records whose Final Finding has the
+    highest count come first (same order as the Final Finding table).
+    Records sharing the same top finding stay together.
+    """
+    if records.empty or final_counts.empty:
+        return records
+
+    count_map = dict(zip(final_counts["Finding"], final_counts["Count"]))
+
+    top_counts = []
+    top_names = []
+
+    for _, row in records[FINAL_COLS].iterrows():
+        best_count = 0
+        best_name = ""
+
+        for value in row:
+            if not value or value not in count_map:
+                continue
+
+            c = count_map[value]
+
+            if c > best_count or (
+                c == best_count and value.casefold() < best_name.casefold()
+            ):
+                best_count = c
+                best_name = value
+
+        top_counts.append(best_count)
+        top_names.append(best_name)
+
+    ordered = records.copy()
+    ordered["__top_count"] = top_counts
+    ordered["__top_name"] = [n.casefold() for n in top_names]
+    ordered["__no_finding"] = [n == "" for n in top_names]
+
+    ordered = ordered.sort_values(
+        ["__no_finding", "__top_count", "__top_name"],
+        ascending=[True, False, True],
+        kind="mergesort",  # stable: keeps original order inside ties
+    )
+
+    return ordered.drop(
+        columns=["__top_count", "__top_name", "__no_finding"]
+    )
 
 
 # --------------------------------------------------
@@ -698,10 +737,14 @@ models = (
 left, right = st.columns([1, 2])
 
 with left:
-    st.dataframe(
+    render_wrapped_table(
         models,
-        use_container_width=True,
-        hide_index=True,
+        "models-count-table",
+        max_height=440,
+        column_widths={
+            "Compressor Model": 240,
+            "Count": 100,
+        },
     )
 
 with right:
@@ -829,13 +872,16 @@ with st.expander("Finding Source Audit"):
 st.subheader("Filtered Compressor Records")
 
 st.caption(
-    "All columns wrap long text. Effect columns are 260 px wide, "
-    "Final Finding columns are 300 px wide. Scroll horizontally to view "
-    "all columns. The table shows 100 rows per page; the CSV download "
-    "contains every filtered record."
+    "Records are sorted by Final Finding count: compressors whose Final "
+    "Finding has the highest count in the Final Finding table come first, "
+    "and records with the same finding stay together. Records without a "
+    "counted Final Finding are listed last. Long text wraps inside each "
+    "cell; scroll horizontally to view all columns. The table shows 100 "
+    "rows per page; the CSV download contains every filtered record in "
+    "the same order."
 )
 
-records = filtered[RECORD_COLS].copy()
+records = sort_records_by_final_count(filtered[RECORD_COLS].copy(), finals)
 
 page_size = 100
 page_count = max(1, (len(records) + page_size - 1) // page_size)
@@ -864,6 +910,12 @@ render_wrapped_table(
     "records-table",
     max_height=720,
     column_widths={
+        "SI No": 80,
+        "SR No": 110,
+        "Compressor Barcode": 170,
+        "Compressor Model": 170,
+        "Compressor type": 150,
+        "Compressor Condition": 160,
         "Effect 1": 260,
         "Effect 2": 260,
         "Effect 3": 260,
