@@ -576,7 +576,7 @@ def chart_style(fig, x_title, y_title):
     fig.update_layout(
         template="plotly_white",
         height=440,
-        margin=dict(l=35, r=50, t=35, b=115),
+        margin=dict(l=35, r=50, t=45, b=115),
         xaxis=dict(
             title=dict(
                 text=x_title,
@@ -671,10 +671,19 @@ def pareto_chart(counts):
         go.Scatter(
             x=counts["Finding"],
             y=cumulative,
-            mode="lines+markers",
+            mode="lines+markers+text",
             name="Cumulative %",
             yaxis="y2",
-            line=dict(width=2),
+            line=dict(width=2, color="#d62728"),
+            marker=dict(size=7, color="#d62728"),
+            text=[f"{v:.1f}%" for v in cumulative],
+            textposition="top center",
+            textfont=dict(
+                color="#d62728",
+                size=12,
+                family="Arial Black",
+            ),
+            cliponaxis=False,
         )
     )
 
@@ -698,7 +707,8 @@ def pareto_chart(counts):
             ),
             overlaying="y",
             side="right",
-            range=[0, 105],
+            range=[0, 118],
+            tickvals=[0, 20, 40, 60, 80, 100],
             ticksuffix="%",
         ),
         legend=dict(
