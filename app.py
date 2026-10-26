@@ -572,41 +572,29 @@ def sort_records_by_final_count(records, final_counts):
 # --------------------------------------------------
 # CHART FORMATTING
 # --------------------------------------------------
-def chart_style(fig, x_title, y_title):
+def chart_style(fig, x_title, y_title, n_categories=0):
+    # Rotate long category names: 45 deg for few bars, vertical for many.
+    tick_angle = -45 if n_categories <= 8 else -90
+
     fig.update_layout(
         template="plotly_white",
-        height=440,
-        margin=dict(l=35, r=50, t=45, b=115),
+        height=480,
+        margin=dict(l=35, r=50, t=45, b=40),
         xaxis=dict(
             title=dict(
                 text=x_title,
-                font=dict(
-                    color="black",
-                    size=14,
-                    family="Arial Black",
-                ),
+                font=dict(color="black", size=13, family="Arial Black"),
             ),
-            tickfont=dict(
-                color="black",
-                size=11,
-                family="Arial Black",
-            ),
-            tickangle=-35,
+            tickfont=dict(color="#222222", size=10, family="Arial"),
+            tickangle=tick_angle,
+            automargin=True,
         ),
         yaxis=dict(
             title=dict(
                 text=y_title,
-                font=dict(
-                    color="black",
-                    size=14,
-                    family="Arial Black",
-                ),
+                font=dict(color="black", size=13, family="Arial Black"),
             ),
-            tickfont=dict(
-                color="black",
-                size=11,
-                family="Arial Black",
-            ),
+            tickfont=dict(color="#222222", size=11, family="Arial"),
         ),
     )
 
@@ -620,16 +608,12 @@ def bar_chart(counts, label):
             y=counts["Count"],
             text=counts["Count"],
             textposition="outside",
-            textfont=dict(
-                color="black",
-                size=12,
-                family="Arial Black",
-            ),
+            textfont=dict(color="black", size=11, family="Arial"),
             cliponaxis=False,
         )
     )
 
-    chart_style(fig, label, "Compressor count")
+    chart_style(fig, label, "Compressor count", len(counts))
 
     fig.update_yaxes(
         range=[0, max(1, counts["Count"].max()) * 1.22]
@@ -658,11 +642,7 @@ def pareto_chart(counts):
             name="Count",
             text=counts["Count"],
             textposition="outside",
-            textfont=dict(
-                color="black",
-                size=12,
-                family="Arial Black",
-            ),
+            textfont=dict(color="black", size=11, family="Arial"),
             cliponaxis=False,
         )
     )
@@ -671,49 +651,57 @@ def pareto_chart(counts):
         go.Scatter(
             x=counts["Finding"],
             y=cumulative,
-            mode="lines+markers+text",
+            mode="lines+markers",
             name="Cumulative %",
             yaxis="y2",
             line=dict(width=2, color="#d62728"),
-            marker=dict(size=7, color="#d62728"),
-            text=[f"{v:.1f}%" for v in cumulative],
-            textposition="top center",
-            textfont=dict(
-                color="#d62728",
-                size=12,
-                family="Arial Black",
-            ),
-            cliponaxis=False,
+            marker=dict(size=6, color="#d62728"),
         )
     )
 
-    chart_style(fig, "Finding", "Occurrence count")
+    chart_style(fig, "Finding", "Occurrence count", len(counts))
+
+    # Small vertical red labels above each cumulative point.
+    # (Scatter text cannot be rotated, annotations can.)
+    annotations = [
+        dict(
+            x=finding,
+            y=value,
+            xref="x",
+            yref="y2",
+            text=f"{value:.1f}%",
+            textangle=-90,
+            showarrow=False,
+            xanchor="center",
+            yanchor="bottom",
+            yshift=6,
+            font=dict(color="#d62728", size=9, family="Arial"),
+            bgcolor="rgba(255,255,255,0.75)",
+            borderpad=1,
+        )
+        for finding, value in zip(counts["Finding"], cumulative)
+    ]
 
     fig.update_layout(
+        annotations=annotations,
         yaxis=dict(
             range=[0, max(1, counts["Count"].max()) * 1.25]
         ),
         yaxis2=dict(
             title=dict(
                 text="Cumulative %",
-                font=dict(
-                    color="black",
-                    family="Arial Black",
-                ),
+                font=dict(color="black", size=13, family="Arial Black"),
             ),
-            tickfont=dict(
-                color="black",
-                family="Arial Black",
-            ),
+            tickfont=dict(color="#222222", size=11, family="Arial"),
             overlaying="y",
             side="right",
-            range=[0, 118],
+            range=[0, 130],
             tickvals=[0, 20, 40, 60, 80, 100],
             ticksuffix="%",
         ),
         legend=dict(
             orientation="h",
-            y=1.13,
+            y=1.1,
             x=0,
         ),
     )
