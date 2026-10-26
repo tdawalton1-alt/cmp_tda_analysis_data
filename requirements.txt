@@ -1,0 +1,7 @@
+streamlit>=1.40
+pandas>=2.2
+plotly>=5.24
+
+# Only required if the Google Sheet is private and you use the service-account mode:
+gspread>=6.1
+google-auth>=2.35
