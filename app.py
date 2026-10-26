@@ -585,7 +585,7 @@ def chart_style(fig, x_title, y_title, n_categories=0):
                 text=x_title,
                 font=dict(color="black", size=13, family="Arial Black"),
             ),
-            tickfont=dict(color="#222222", size=10, family="Arial"),
+            tickfont=dict(color="black", size=10, family="Arial Black"),
             tickangle=tick_angle,
             automargin=True,
         ),
@@ -594,7 +594,7 @@ def chart_style(fig, x_title, y_title, n_categories=0):
                 text=y_title,
                 font=dict(color="black", size=13, family="Arial Black"),
             ),
-            tickfont=dict(color="#222222", size=11, family="Arial"),
+            tickfont=dict(color="black", size=11, family="Arial Black"),
         ),
     )
 
@@ -692,7 +692,7 @@ def pareto_chart(counts):
                 text="Cumulative %",
                 font=dict(color="black", size=13, family="Arial Black"),
             ),
-            tickfont=dict(color="#222222", size=11, family="Arial"),
+            tickfont=dict(color="black", size=11, family="Arial Black"),
             overlaying="y",
             side="right",
             range=[0, 130],
