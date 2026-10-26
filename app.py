@@ -6,9 +6,16 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+# --------------------------------------------------
+# GOOGLE SHEETS CONFIGURATION
+# --------------------------------------------------
 SHEET_ID = "1-Tqv5bH51dCTFxa9UMvLTBGr7zM0v1LpSZEN9GwM5OU"
 SHEET_GID = "243879173"
-CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
+
+CSV_URL = (
+    f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/"
+    f"export?format=csv&gid={SHEET_GID}"
+)
 
 DATA_SOURCE_URL = (
     "https://docs.google.com/spreadsheets/d/"
@@ -22,16 +29,34 @@ CATEGORICAL_FILTERS = [
     "Field Findings",
     "TDA Preliminary Findings",
 ]
-DATE_FILTERS = ["Inspection Date", "Compressor Production Date"]
+
+DATE_FILTERS = [
+    "Inspection Date",
+    "Compressor Production Date",
+]
+
 EFFECT_COLS = [f"Effect {i}" for i in range(1, 5)]
 FINAL_COLS = [f"Final Findings {i}" for i in range(1, 5)]
+
 RECORD_COLS = [
-    "SI No", "SR No", "Compressor Barcode", "Compressor Model",
-    "Compressor type", "Compressor Condition", "Inspection Date",
-    "Compressor Production Date", "Compressor Market Return Date",
-    "Compressor Lifetime", "Field Findings", "TDA Preliminary Findings",
-    *EFFECT_COLS, *FINAL_COLS, "Other comments", "Measurement data",
+    "SI No",
+    "SR No",
+    "Compressor Barcode",
+    "Compressor Model",
+    "Compressor type",
+    "Compressor Condition",
+    "Inspection Date",
+    "Compressor Production Date",
+    "Compressor Market Return Date",
+    "Compressor Lifetime",
+    "Field Findings",
+    "TDA Preliminary Findings",
+    *EFFECT_COLS,
+    *FINAL_COLS,
+    "Other comments",
+    "Measurement data",
 ]
+
 BLANK = "(Blank)"
 
 st.set_page_config(
@@ -39,6 +64,7 @@ st.set_page_config(
     page_icon="📊",
     layout="wide",
 )
+
 st.title("📊 Compressor TDA Dashboard")
 st.caption(
     "Google Sheets · Database | Multi-level filters, "
@@ -46,15 +72,31 @@ st.caption(
 )
 
 
+# --------------------------------------------------
+# DATA CLEANING
+# --------------------------------------------------
 def clean(value):
     if pd.isna(value):
         return ""
+
     s = unicodedata.normalize("NFKC", str(value))
     s = re.sub(r"[\u200b-\u200d\ufeff]", "", s)
-    s = s.replace("\xa0", " ").strip()
-    return "" if s.casefold() in {"nan", "none", "null", "nat"} else s
+    s = s.replace("\xa0", " ")
+
+    # Convert literal backslash+n sequences into actual new lines.
+    # This fixes values such as:
+    # 1.Piston Colliding with Valve Leaf\n2.Rust at discharge chamber
+    s = s.replace(r"\n", "\n").strip()
+
+    if s.casefold() in {"nan", "none", "null", "nat"}:
+        return ""
+
+    return s
 
 
+# --------------------------------------------------
+# LOAD GOOGLE SHEETS DATA
+# --------------------------------------------------
 @st.cache_data(ttl=600, show_spinner="Loading Google Sheets data...")
 def load_data():
     raw = pd.read_csv(
@@ -63,12 +105,16 @@ def load_data():
         keep_default_na=False,
         na_filter=False,
     )
+
     raw.columns = [clean(c) for c in raw.columns]
     raw = raw.loc[:, ~raw.columns.duplicated()].copy()
+
     mapping = {c.casefold(): c for c in raw.columns}
 
+    # Normalize column names and create missing optional columns.
     for col in RECORD_COLS:
         actual = mapping.get(col.casefold())
+
         if actual and actual != col:
             raw = raw.rename(columns={actual: col})
         elif not actual:
@@ -77,9 +123,14 @@ def load_data():
     for col in RECORD_COLS:
         raw[col] = raw[col].map(clean)
 
-    raw = raw.loc[~raw[RECORD_COLS].eq("").all(axis=1)].copy()
+    raw = raw.loc[
+        ~raw[RECORD_COLS].eq("").all(axis=1)
+    ].copy()
 
-    for col in [*DATE_FILTERS, "Compressor Market Return Date"]:
+    for col in [
+        *DATE_FILTERS,
+        "Compressor Market Return Date",
+    ]:
         raw[f"__date_{col}"] = pd.to_datetime(
             raw[col],
             errors="coerce",
@@ -104,9 +155,16 @@ if source.empty:
     st.stop()
 
 
+# --------------------------------------------------
+# CATEGORICAL FILTERS
+# --------------------------------------------------
 def distinct_options(df, col):
     values = {v if v else BLANK for v in df[col]}
-    return sorted(values, key=lambda x: (x == BLANK, x.casefold()))
+
+    return sorted(
+        values,
+        key=lambda x: (x == BLANK, x.casefold()),
+    )
 
 
 def categorical_filter(df, col):
@@ -120,10 +178,13 @@ def categorical_filter(df, col):
     old = st.session_state[key]
     previous = st.session_state.get(previous_key)
 
+    # Preserve selections unless all previous options were selected.
     if previous is not None and set(old) == set(previous):
         st.session_state[key] = opts.copy()
     else:
-        st.session_state[key] = [x for x in old if x in opts]
+        st.session_state[key] = [
+            x for x in old if x in opts
+        ]
 
     st.session_state[previous_key] = opts.copy()
 
@@ -134,10 +195,16 @@ def categorical_filter(df, col):
         placeholder="Choose values",
     )
 
-    normalized = df[col].map(lambda v: v if v else BLANK)
+    normalized = df[col].map(
+        lambda v: v if v else BLANK
+    )
+
     return df[normalized.isin(selected)]
 
 
+# --------------------------------------------------
+# DATE FILTERS
+# --------------------------------------------------
 def date_filter(df, col):
     st.markdown(f"**{col}**")
     parsed = df[f"__date_{col}"]
@@ -157,6 +224,7 @@ def date_filter(df, col):
 
     if mode == "All dates":
         return df
+
     if mode == "Blank dates":
         return df[parsed.isna()]
 
@@ -164,11 +232,14 @@ def date_filter(df, col):
 
     if valid.empty:
         st.caption("No valid dates in the current selection.")
+
         if mode == "Date range + blank dates":
             return df[parsed.isna()]
+
         return df.iloc[0:0]
 
-    start, end = valid.min().date(), valid.max().date()
+    start = valid.min().date()
+    end = valid.max().date()
 
     chosen = st.date_input(
         f"{col} range",
@@ -191,6 +262,9 @@ def date_filter(df, col):
     return df[in_range]
 
 
+# --------------------------------------------------
+# EFFECT AND FINAL FINDING FILTERS
+# --------------------------------------------------
 def finding_options(df, columns):
     values = set()
 
@@ -200,7 +274,10 @@ def finding_options(df, columns):
     if df[columns].eq("").any(axis=1).any():
         values.add(BLANK)
 
-    return sorted(values, key=lambda x: (x == BLANK, x.casefold()))
+    return sorted(
+        values,
+        key=lambda x: (x == BLANK, x.casefold()),
+    )
 
 
 def finding_filter(df, columns, title, key):
@@ -209,7 +286,7 @@ def finding_filter(df, columns, title, key):
     old_opts_key = f"previous_finding_options_{key}"
 
     if state_key not in st.session_state:
-        # Select all findings initially.
+        # Select all options on initial dashboard loading.
         st.session_state[state_key] = options.copy()
     else:
         old = st.session_state[state_key]
@@ -223,7 +300,12 @@ def finding_filter(df, columns, title, key):
             ]
 
     st.session_state[old_opts_key] = options.copy()
-    selected = st.multiselect(title, options, key=state_key)
+
+    selected = st.multiselect(
+        title,
+        options,
+        key=state_key,
+    )
 
     if not selected:
         return df.iloc[0:0]
@@ -231,12 +313,16 @@ def finding_filter(df, columns, title, key):
     actual = [x for x in selected if x != BLANK]
     mask = df[columns].isin(actual).any(axis=1)
 
+    # Blank is a filter option only; it is never counted as a finding.
     if BLANK in selected:
         mask = mask | df[columns].eq("").any(axis=1)
 
     return df[mask]
 
 
+# --------------------------------------------------
+# APPLY FILTERS
+# --------------------------------------------------
 with st.sidebar:
     st.header("🔎 Filters")
 
@@ -249,9 +335,11 @@ with st.sidebar:
             "finding_",
             "previous_finding_options_",
         )
+
         for key in list(st.session_state):
             if key.startswith(prefixes):
                 del st.session_state[key]
+
         st.rerun()
 
     filtered = source.copy()
@@ -268,27 +356,139 @@ with st.sidebar:
     st.divider()
 
     filtered = finding_filter(
-        filtered, EFFECT_COLS, "Effect", "effects"
+        filtered,
+        EFFECT_COLS,
+        "Effect",
+        "effects",
     )
+
     filtered = finding_filter(
-        filtered, FINAL_COLS, "Final Finding", "final"
+        filtered,
+        FINAL_COLS,
+        "Final Finding",
+        "final",
     )
 
 
 st.caption(
     "Filters are applied sequentially from top to bottom. "
-    "Effect and Final Finding selections filter compressors; "
-    "their charts include selected findings only."
+    "Effect and Final Finding selections filter compressor records. "
+    "Blank finding cells are excluded from counts and charts."
 )
 
 
+# --------------------------------------------------
+# REUSABLE WRAPPED HTML TABLE
+# --------------------------------------------------
+def render_wrapped_table(
+    df,
+    table_class,
+    max_height=520,
+    column_widths=None,
+):
+    """
+    Render a scrollable HTML table.
+
+    pre-wrap preserves actual newlines.
+    overflow-wrap allows long text to wrap inside cells.
+    column_widths controls individual column widths.
+    """
+    if df.empty:
+        st.info("No data to display.")
+        return
+
+    html_table = df.to_html(
+        index=False,
+        escape=True,
+        classes=table_class,
+        border=0,
+    )
+
+    widths_css = ""
+
+    if column_widths:
+        for column_name, width in column_widths.items():
+            if column_name in df.columns:
+                position = list(df.columns).index(column_name) + 1
+
+                widths_css += (
+                    f"\n.{table_class} th:nth-child({position}), "
+                    f".{table_class} td:nth-child({position}) "
+                    f"{{ min-width: {width}px; max-width: {width}px; }}"
+                )
+
+    st.markdown(
+        f"""
+        <style>
+        .{table_class}-wrap {{
+            width: 100%;
+            max-height: {max_height}px;
+            overflow: auto;
+            border: 1px solid #d6d6d6;
+            border-radius: 6px;
+        }}
+
+        table.{table_class} {{
+            border-collapse: collapse;
+            width: max-content;
+            min-width: 100%;
+            table-layout: auto;
+            font-size: 13px;
+        }}
+
+        table.{table_class} th,
+        table.{table_class} td {{
+            border: 1px solid #d6d6d6;
+            padding: 8px 10px;
+            text-align: left;
+            vertical-align: top;
+
+            /* Preserve line breaks and wrap long text. */
+            white-space: pre-wrap !important;
+            overflow-wrap: anywhere !important;
+            word-break: normal;
+
+            min-width: 120px;
+            max-width: 420px;
+            line-height: 1.45;
+        }}
+
+        table.{table_class} th {{
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f0f2f6;
+            color: #111111;
+            font-weight: 700;
+        }}
+
+        table.{table_class} tr:nth-child(even) td {{
+            background: #fafafa;
+        }}
+
+        {widths_css}
+        </style>
+
+        <div class="{table_class}-wrap">
+            {html_table}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# --------------------------------------------------
+# FINDING COUNTS
+# --------------------------------------------------
 def finding_counts(df, columns, selected, unique=False):
     if df.empty or not selected:
         return pd.DataFrame(columns=["Finding", "Count"])
 
-    # Blank values are never counted or displayed in finding charts.
+    # Exclude blanks and the filter-only (Blank) option.
     actual_selected = [
-        value for value in selected if value not in (BLANK, "")
+        value
+        for value in selected
+        if value not in (BLANK, "")
     ]
 
     if not actual_selected:
@@ -298,10 +498,12 @@ def finding_counts(df, columns, selected, unique=False):
 
     if unique:
         counts = {}
+
         for _, row in working.iterrows():
             for value in set(row.dropna()):
                 if value in actual_selected:
                     counts[value] = counts.get(value, 0) + 1
+
         series = pd.Series(counts, dtype="int64")
     else:
         series = working.stack().value_counts()
@@ -311,12 +513,16 @@ def finding_counts(df, columns, selected, unique=False):
         return pd.DataFrame(columns=["Finding", "Count"])
 
     result = series.rename_axis("Finding").reset_index(name="Count")
+
     return result.sort_values(
         ["Count", "Finding"],
         ascending=[False, True],
     ).reset_index(drop=True)
 
 
+# --------------------------------------------------
+# CHART FORMATTING
+# --------------------------------------------------
 def chart_style(fig, x_title, y_title):
     fig.update_layout(
         template="plotly_white",
@@ -325,19 +531,36 @@ def chart_style(fig, x_title, y_title):
         xaxis=dict(
             title=dict(
                 text=x_title,
-                font=dict(color="black", size=14, family="Arial Black"),
+                font=dict(
+                    color="black",
+                    size=14,
+                    family="Arial Black",
+                ),
             ),
-            tickfont=dict(color="black", size=11, family="Arial Black"),
+            tickfont=dict(
+                color="black",
+                size=11,
+                family="Arial Black",
+            ),
             tickangle=-35,
         ),
         yaxis=dict(
             title=dict(
                 text=y_title,
-                font=dict(color="black", size=14, family="Arial Black"),
+                font=dict(
+                    color="black",
+                    size=14,
+                    family="Arial Black",
+                ),
             ),
-            tickfont=dict(color="black", size=11, family="Arial Black"),
+            tickfont=dict(
+                color="black",
+                size=11,
+                family="Arial Black",
+            ),
         ),
     )
+
     return fig
 
 
@@ -348,14 +571,21 @@ def bar_chart(counts, label):
             y=counts["Count"],
             text=counts["Count"],
             textposition="outside",
-            textfont=dict(color="black", size=12, family="Arial Black"),
+            textfont=dict(
+                color="black",
+                size=12,
+                family="Arial Black",
+            ),
             cliponaxis=False,
         )
     )
+
     chart_style(fig, label, "Compressor count")
+
     fig.update_yaxes(
         range=[0, max(1, counts["Count"].max()) * 1.22]
     )
+
     return fig
 
 
@@ -364,10 +594,12 @@ def pareto_chart(counts):
         return go.Figure()
 
     total = counts["Count"].sum()
+
     if total <= 0:
         return go.Figure()
 
     cumulative = counts["Count"].cumsum() / total * 100
+
     fig = go.Figure()
 
     fig.add_trace(
@@ -377,7 +609,11 @@ def pareto_chart(counts):
             name="Count",
             text=counts["Count"],
             textposition="outside",
-            textfont=dict(color="black", size=12, family="Arial Black"),
+            textfont=dict(
+                color="black",
+                size=12,
+                family="Arial Black",
+            ),
             cliponaxis=False,
         )
     )
@@ -402,20 +638,35 @@ def pareto_chart(counts):
         yaxis2=dict(
             title=dict(
                 text="Cumulative %",
-                font=dict(color="black", family="Arial Black"),
+                font=dict(
+                    color="black",
+                    family="Arial Black",
+                ),
             ),
-            tickfont=dict(color="black", family="Arial Black"),
+            tickfont=dict(
+                color="black",
+                family="Arial Black",
+            ),
             overlaying="y",
             side="right",
             range=[0, 105],
             ticksuffix="%",
         ),
-        legend=dict(orientation="h", y=1.13, x=0),
+        legend=dict(
+            orientation="h",
+            y=1.13,
+            x=0,
+        ),
     )
+
     return fig
 
 
+# --------------------------------------------------
+# KPI METRICS
+# --------------------------------------------------
 m1, m2, m3 = st.columns(3)
+
 m1.metric("Total compressors", f"{len(source):,}")
 m2.metric("Filtered compressors", f"{len(filtered):,}")
 m3.metric(
@@ -447,7 +698,11 @@ models = (
 left, right = st.columns([1, 2])
 
 with left:
-    st.dataframe(models, use_container_width=True, hide_index=True)
+    st.dataframe(
+        models,
+        use_container_width=True,
+        hide_index=True,
+    )
 
 with right:
     st.plotly_chart(
@@ -460,6 +715,7 @@ with right:
 # EFFECT ANALYSIS
 # --------------------------------------------------
 st.subheader("Effect Analysis")
+
 st.caption(
     "A compressor can have up to four effects. "
     "Blank cells are excluded from counts and charts."
@@ -470,22 +726,45 @@ count_mode = st.radio(
     ["Occurrences", "Unique compressors per finding"],
     horizontal=True,
 )
+
 unique = count_mode == "Unique compressors per finding"
 
 effect_selected = st.session_state.get("finding_effects", [])
 final_selected = st.session_state.get("finding_final", [])
 
-effects = finding_counts(filtered, EFFECT_COLS, effect_selected, unique)
-finals = finding_counts(filtered, FINAL_COLS, final_selected, unique)
+effects = finding_counts(
+    filtered,
+    EFFECT_COLS,
+    effect_selected,
+    unique,
+)
+
+finals = finding_counts(
+    filtered,
+    FINAL_COLS,
+    final_selected,
+    unique,
+)
 
 left, right = st.columns([1, 2])
 
 with left:
-    st.dataframe(effects, use_container_width=True, hide_index=True)
+    render_wrapped_table(
+        effects,
+        "effects-count-table",
+        max_height=520,
+        column_widths={
+            "Finding": 360,
+            "Count": 100,
+        },
+    )
 
 with right:
     if not effects.empty:
-        st.plotly_chart(pareto_chart(effects), use_container_width=True)
+        st.plotly_chart(
+            pareto_chart(effects),
+            use_container_width=True,
+        )
     else:
         st.info("No selected effects in the filtered data.")
 
@@ -498,11 +777,22 @@ st.subheader("Final Finding Analysis")
 left, right = st.columns([1, 2])
 
 with left:
-    st.dataframe(finals, use_container_width=True, hide_index=True)
+    render_wrapped_table(
+        finals,
+        "final-count-table",
+        max_height=520,
+        column_widths={
+            "Finding": 360,
+            "Count": 100,
+        },
+    )
 
 with right:
     if not finals.empty:
-        st.plotly_chart(pareto_chart(finals), use_container_width=True)
+        st.plotly_chart(
+            pareto_chart(finals),
+            use_container_width=True,
+        )
     else:
         st.info("No selected final findings in the filtered data.")
 
@@ -519,7 +809,11 @@ with st.expander("Finding Source Audit"):
         for col in EFFECT_COLS + FINAL_COLS
     ])
 
-    st.dataframe(audit, use_container_width=True, hide_index=True)
+    st.dataframe(
+        audit,
+        use_container_width=True,
+        hide_index=True,
+    )
 
     st.caption(
         "Blank Effect and Final Finding cells are excluded from count "
@@ -530,16 +824,19 @@ with st.expander("Finding Source Audit"):
 
 
 # --------------------------------------------------
-# FILTERED COMPRESSOR RECORDS — WRAPPED TEXT
+# FILTERED COMPRESSOR RECORDS
 # --------------------------------------------------
 st.subheader("Filtered Compressor Records")
+
 st.caption(
-    "All columns wrap long text. Effect and Final Finding columns have "
-    "extra width. Scroll horizontally to view all columns. The table "
-    "shows 100 rows per page; the CSV download includes every filtered row."
+    "All columns wrap long text. Effect columns are 260 px wide, "
+    "Final Finding columns are 300 px wide. Scroll horizontally to view "
+    "all columns. The table shows 100 rows per page; the CSV download "
+    "contains every filtered record."
 )
 
 records = filtered[RECORD_COLS].copy()
+
 page_size = 100
 page_count = max(1, (len(records) + page_size - 1) // page_size)
 
@@ -562,74 +859,24 @@ st.caption(
     f"of {len(records):,}"
 )
 
-# HTML table supports wrapping consistently across all cells.
-html_table = page_records.to_html(
-    index=False,
-    escape=True,
-    classes="records-table",
-    border=0,
-)
-
-st.markdown(
-    """
-    <style>
-    .records-wrap {
-        width: 100%;
-        max-height: 720px;
-        overflow: auto;
-        border: 1px solid #d6d6d6;
-        border-radius: 6px;
-    }
-
-    table.records-table {
-        border-collapse: collapse;
-        width: max-content;
-        min-width: 100%;
-        table-layout: auto;
-        font-size: 13px;
-    }
-
-    table.records-table th,
-    table.records-table td {
-        border: 1px solid #d6d6d6;
-        padding: 8px 10px;
-        text-align: left;
-        vertical-align: top;
-        white-space: normal !important;
-        overflow-wrap: anywhere !important;
-        word-break: normal;
-        min-width: 115px;
-        max-width: 300px;
-        line-height: 1.4;
-    }
-
-    table.records-table th {
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        background: #f0f2f6;
-        color: #111111;
-        font-weight: 700;
-    }
-
-    /* Effect 1–4 and Final Findings 1–4 are columns 13 through 20. */
-    table.records-table th:nth-child(n+13):nth-child(-n+20),
-    table.records-table td:nth-child(n+13):nth-child(-n+20) {
-        min-width: 220px;
-        max-width: 360px;
-    }
-
-    table.records-table tr:nth-child(even) td {
-        background: #fafafa;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    f'<div class="records-wrap">{html_table}</div>',
-    unsafe_allow_html=True,
+render_wrapped_table(
+    page_records,
+    "records-table",
+    max_height=720,
+    column_widths={
+        "Effect 1": 260,
+        "Effect 2": 260,
+        "Effect 3": 260,
+        "Effect 4": 260,
+        "Final Findings 1": 300,
+        "Final Findings 2": 300,
+        "Final Findings 3": 300,
+        "Final Findings 4": 300,
+        "Field Findings": 280,
+        "TDA Preliminary Findings": 300,
+        "Other comments": 280,
+        "Measurement data": 280,
+    },
 )
 
 st.download_button(
@@ -645,4 +892,7 @@ st.download_button(
 # --------------------------------------------------
 st.divider()
 st.subheader("Data Source")
-st.markdown(f"[Updated Data Logger]({DATA_SOURCE_URL})")
+
+st.markdown(
+    f"[Updated Data Logger]({DATA_SOURCE_URL})"
+)
